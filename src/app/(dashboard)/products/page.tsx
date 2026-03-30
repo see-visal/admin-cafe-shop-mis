@@ -79,11 +79,12 @@ interface ProductFormProps {
     setForm: React.Dispatch<React.SetStateAction<ProductFormValues>>;
     onSubmit: (e: React.FormEvent) => void;
     onImageSelected: (file: File | null) => void | Promise<void>;
+    onImageUrlChanged: (value: string) => void;
     loading: boolean;
     categories: Category[] | undefined;
 }
 
-function ProductForm({ form, setForm, onSubmit, onImageSelected, loading, categories }: ProductFormProps) {
+function ProductForm({ form, setForm, onSubmit, onImageSelected, onImageUrlChanged, loading, categories }: ProductFormProps) {
     const isTodaySpecial = form.todaySpecial;
     const typeLabel = isTodaySpecial ? "Today's Special" : "Normal Product";
     const typeDescription = isTodaySpecial
@@ -104,8 +105,8 @@ function ProductForm({ form, setForm, onSubmit, onImageSelected, loading, catego
                 ? "border-amber-200 bg-amber-50 text-amber-800"
                 : "border-slate-200 bg-slate-50 text-slate-500";
     const imageStatusMessage = form.imageUploadMessage || (form.imagePreview
-        ? "Local preview is ready. Save the product once your MinIO upload is ready."
-        : "Choose a local image and the admin will upload it to MinIO automatically.");
+        ? "Image preview is ready. Save the product once you are happy with the MinIO image."
+        : "Choose a local image or paste an existing MinIO image URL/path.");
 
     return (
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
@@ -296,6 +297,19 @@ function ProductForm({ form, setForm, onSubmit, onImageSelected, loading, catego
                         e.currentTarget.value = "";
                     }}
                 />
+                <div className="space-y-2">
+                    <Label className="text-sm font-medium text-slate-800">Or use an existing MinIO image</Label>
+                    <Input
+                        type="text"
+                        placeholder="Paste MinIO URL, browser link, or object path like products/latte.jpg"
+                        value={form.imageUrl}
+                        onChange={(e) => onImageUrlChanged(e.target.value)}
+                        className="h-12 rounded-2xl border-slate-200 bg-white px-4 text-base shadow-none focus-visible:ring-amber-400"
+                    />
+                    <p className="text-sm leading-6 text-slate-500">
+                        Works with MinIO public URLs, MinIO browser URLs, or object paths inside the <code>coffeeshop-files</code> bucket.
+                    </p>
+                </div>
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${imageStatusClassName}`}>
                     <div className="flex items-center gap-2">
                         {form.imageUploadState === "uploading" && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -467,6 +481,35 @@ export default function ProductsPage() {
         }
     }
 
+    function handleImageUrlChanged(value: string) {
+        const normalizedValue = value.trim();
+        const resolvedPreview = resolveStorageUrl(normalizedValue) ?? "";
+
+        setFeedback(null);
+        setForm((current) => {
+            if (current.imagePreview.startsWith("blob:")) {
+                URL.revokeObjectURL(current.imagePreview);
+            }
+
+            return {
+                ...current,
+                imageFile: null,
+                imageUrl: normalizedValue,
+                imagePreview: resolvedPreview,
+                imageUploadState: normalizedValue
+                    ? resolvedPreview
+                        ? "uploaded"
+                        : "idle"
+                    : "idle",
+                imageUploadMessage: normalizedValue
+                    ? resolvedPreview
+                        ? "Using the existing MinIO image for this product."
+                        : "Image URL saved, but preview is not available yet. Check the path before saving."
+                    : "",
+            };
+        });
+    }
+
     async function handleCreate(e: React.FormEvent) {
         e.preventDefault();
         setFeedback(null);
@@ -595,6 +638,7 @@ export default function ProductsPage() {
                             setForm={setForm}
                             onSubmit={handleCreate}
                             onImageSelected={handleImageSelected}
+                            onImageUrlChanged={handleImageUrlChanged}
                             loading={creating || uploadingImage}
                             categories={categories}
                         />
@@ -732,6 +776,7 @@ export default function ProductsPage() {
                                                             setForm={setForm}
                                                             onSubmit={handleUpdate}
                                                             onImageSelected={handleImageSelected}
+                                                            onImageUrlChanged={handleImageUrlChanged}
                                                             loading={updating || uploadingImage}
                                                             categories={categories}
                                                         />

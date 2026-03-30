@@ -27,6 +27,7 @@ import {
     useSetUserEnabledMutation,
     useSetUserLockedMutation,
     useUpdateUserMutation,
+    useUploadAdminImageMutation,
 } from "@/store/api/managementApi";
 import type { AdminUser } from "@/types";
 import { resolveStorageUrl } from "@/lib/storage";
@@ -116,6 +117,7 @@ export default function CustomersPage() {
     const [deleteUser, { isLoading: deleting }] = useDeleteUserMutation();
     const [setUserEnabled, { isLoading: togglingEnabled }] = useSetUserEnabledMutation();
     const [setUserLocked, { isLoading: togglingLocked }] = useSetUserLockedMutation();
+    const [uploadAdminImage, { isLoading: uploadingImage }] = useUploadAdminImageMutation();
 
     const [createOpen, setCreateOpen] = useState(false);
     const [detailOpen, setDetailOpen] = useState(false);
@@ -220,6 +222,19 @@ export default function CustomersPage() {
         } catch (error) {
             const message = (error as { data?: { message?: string } })?.data?.message;
             setUpdateError(message ?? "Failed to update customer profile. Please try again.");
+        }
+    }
+
+    async function handleCustomerAvatarUpload(file: File) {
+        try {
+            const result = await uploadAdminImage({ directory: "users/customers", file }).unwrap();
+            setUpdateForm((current) => ({ ...current, profileImage: result.imageUrl }));
+            setToast({ ok: true, msg: "Customer avatar uploaded to MinIO." });
+        } catch (error) {
+            const message = (error as { data?: { error?: string; message?: string } })?.data?.error
+                ?? (error as { data?: { error?: string; message?: string } })?.data?.message
+                ?? "Failed to upload customer avatar.";
+            setToast({ ok: false, msg: message });
         }
     }
 
@@ -755,14 +770,29 @@ export default function CustomersPage() {
                             <p className="text-xs text-stone-400">Email is currently read-only because the admin update API does not accept email changes.</p>
                         </div>
 
-                        <div className="space-y-1.5">
-                            <Label>Profile Image URL</Label>
+                        <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-4">
+                            <div>
+                                <Label>Profile Image</Label>
+                                <p className="mt-1 text-xs text-stone-400">Upload a customer avatar to MinIO or paste a direct image URL if needed.</p>
+                            </div>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="block w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-amber-800 hover:file:bg-amber-200"
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    void handleCustomerAvatarUpload(file);
+                                    e.currentTarget.value = "";
+                                }}
+                                disabled={uploadingImage}
+                            />
                             <Input
                                 value={updateForm.profileImage}
                                 onChange={(e) => setUpdateForm((f) => ({ ...f, profileImage: e.target.value }))}
                                 placeholder="https://example.com/customer-avatar.jpg"
                             />
-                            <p className="text-xs text-stone-400">Paste an image URL to update the customer avatar shown in admin.</p>
+                            <p className="text-xs text-stone-400">Saved URL for the customer avatar shown in admin and customer-facing screens.</p>
                         </div>
 
                         {normalizeImageUrl(updateForm.profileImage) && (
@@ -855,8 +885,8 @@ export default function CustomersPage() {
                             >
                                 Cancel
                             </Button>
-                            <Button type="submit" disabled={updating}>
-                                {updating ? "Saving..." : "Save Changes"}
+                            <Button type="submit" disabled={updating || uploadingImage}>
+                                {updating ? "Saving..." : uploadingImage ? "Uploading..." : "Save Changes"}
                             </Button>
                         </DialogFooter>
                     </form>

@@ -68,6 +68,19 @@ export const managementApi = baseApi.injectEndpoints({
             invalidatesTags: ["User", "AuditLog"],
         }),
 
+        uploadAdminImage: builder.mutation<{ imageUrl: string }, { directory: string; file: File }>({
+            query: ({ directory, file }) => {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                return {
+                    url: "/api/admin/uploads/image",
+                    method: "POST",
+                    body: formData,
+                    params: { directory },
+                };
+            },
+        }),
         // ── Audit Logs ──────────────────────────────────────────
         getAuditLogs: builder.query<
             PageResponse<AuditLog>,
@@ -151,6 +164,7 @@ export const {
     useSetUserEnabledMutation,
     useSetUserLockedMutation,
     useDeleteUserMutation,
+    useUploadAdminImageMutation,
     useGetAuditLogsQuery,
     useGetPromosQuery,
     useCreatePromoMutation,
@@ -162,3 +176,6 @@ export const {
     useGetProductRatingsQuery,
     useGetProductAverageRatingQuery,
 } = managementApi;
+
+
+

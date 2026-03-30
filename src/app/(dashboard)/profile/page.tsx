@@ -7,6 +7,7 @@ import {
     useUpdateAdminProfileMutation,
     useChangeAdminPasswordMutation,
 } from "@/store/api/profileApi";
+import { useUploadAdminImageMutation } from "@/store/api/managementApi";
 import {
     User, Mail, Phone, Shield, Star, Calendar, Hash,
     Copy, CheckCheck, Loader2, ShieldCheck, Coffee,
@@ -110,6 +111,7 @@ export default function ProfilePage() {
     const { data: profile, isLoading, isError } = useGetAdminProfileQuery();
     const [updateProfile, { isLoading: saving }] = useUpdateAdminProfileMutation();
     const [changePassword, { isLoading: changingPw }] = useChangeAdminPasswordMutation();
+    const [uploadAdminImage, { isLoading: uploadingImage }] = useUploadAdminImageMutation();
 
     const [tab, setTab] = useState<Tab>("view");
     const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -172,6 +174,28 @@ export default function ProfilePage() {
             setTab("view");
         } catch {
             setToast({ ok: false, msg: "Failed to update profile. Please try again." });
+        }
+    }
+
+    async function handleImageUpload(file: File, kind: "profile" | "cover") {
+        try {
+            const result = await uploadAdminImage({
+                directory: kind === "profile" ? "users/profile" : "users/cover",
+                file,
+            }).unwrap();
+
+            if (kind === "profile") {
+                setProfileImage(result.imageUrl);
+            } else {
+                setCoverImage(result.imageUrl);
+            }
+
+            setToast({ ok: true, msg: `${kind === "profile" ? "Profile" : "Cover"} image uploaded to MinIO.` });
+        } catch (error) {
+            const message = (error as { data?: { error?: string; message?: string } })?.data?.error
+                ?? (error as { data?: { error?: string; message?: string } })?.data?.message
+                ?? `Failed to upload ${kind} image.`;
+            setToast({ ok: false, msg: message });
         }
     }
 
@@ -422,11 +446,43 @@ export default function ProfilePage() {
                                         </select>
                                     </div>
                                     <FormField id="dob" label="Date of Birth" type="date" value={dob} onChange={setDob} />
-                                    <div className="sm:col-span-2">
-                                        <FormField id="profileImage" label="Profile Image URL" value={profileImage} onChange={setProfileImage} placeholder="https://example.com/avatar.jpg" maxLength={256} hint="URL to your profile photo" />
+                                    <div className="sm:col-span-2 space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-4">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Profile Image</p>
+                                            <p className="mt-1 text-xs text-stone-500">Upload to MinIO or paste a direct image URL if needed.</p>
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="block w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-amber-800 hover:file:bg-amber-200"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                void handleImageUpload(file, "profile");
+                                                e.currentTarget.value = "";
+                                            }}
+                                            disabled={uploadingImage}
+                                        />
+                                        <FormField id="profileImage" label="Profile Image URL" value={profileImage} onChange={setProfileImage} placeholder="https://example.com/avatar.jpg" maxLength={256} hint="Saved URL for your profile photo" />
                                     </div>
-                                    <div className="sm:col-span-2">
-                                        <FormField id="coverImage" label="Cover Image URL" value={coverImage} onChange={setCoverImage} placeholder="https://example.com/cover.jpg" maxLength={256} hint="URL to your cover/banner image" />
+                                    <div className="sm:col-span-2 space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-4">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Cover Image</p>
+                                            <p className="mt-1 text-xs text-stone-500">Upload to MinIO or paste a direct image URL if needed.</p>
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="block w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-amber-800 hover:file:bg-amber-200"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                void handleImageUpload(file, "cover");
+                                                e.currentTarget.value = "";
+                                            }}
+                                            disabled={uploadingImage}
+                                        />
+                                        <FormField id="coverImage" label="Cover Image URL" value={coverImage} onChange={setCoverImage} placeholder="https://example.com/cover.jpg" maxLength={256} hint="Saved URL for your cover/banner image" />
                                     </div>
                                 </div>
 
@@ -456,11 +512,11 @@ export default function ProfilePage() {
                                     </button>
                                     <button
                                         onClick={handleSave}
-                                        disabled={saving}
+                                        disabled={saving || uploadingImage}
                                         className="flex items-center gap-2 h-11 px-7 rounded-xl bg-[#2e1505] text-white text-sm font-bold hover:bg-stone-900 disabled:opacity-60 transition-all active:scale-95 shadow-[0_4px_16px_rgba(46,21,5,0.3)]"
                                     >
-                                        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                                        {saving ? "Saving…" : "Save Changes"}
+                                        {saving || uploadingImage ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                                        {saving ? "Saving…" : uploadingImage ? "Uploading…" : "Save Changes"}
                                     </button>
                                 </div>
                             </div>
@@ -526,3 +582,4 @@ export default function ProfilePage() {
         </div>
     );
 }
+

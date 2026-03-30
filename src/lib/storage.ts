@@ -1,5 +1,6 @@
 const MINIO_PUBLIC_BASE = sanitizeMinioBase(process.env.NEXT_PUBLIC_MINIO_URL || "http://localhost:9000");
 const MINIO_BUCKET = process.env.NEXT_PUBLIC_MINIO_BUCKET || "coffeeshop-files";
+const API_BASE = sanitizeApiBase(process.env.NEXT_PUBLIC_API_URL || "");
 
 export function resolveStorageUrl(url?: string | null): string | undefined {
     if (!url) return undefined;
@@ -13,11 +14,11 @@ export function resolveStorageUrl(url?: string | null): string | undefined {
 
     const browserObjectUrl = normalizeBrowserObjectUrl(value);
     if (browserObjectUrl) {
-        return browserObjectUrl;
+        return buildPreferredStorageUrl(browserObjectUrl);
     }
 
     if (value.startsWith("http://") || value.startsWith("https://")) {
-        return value;
+        return buildPreferredStorageUrl(value);
     }
 
     if (value.startsWith("/")) {
@@ -27,10 +28,10 @@ export function resolveStorageUrl(url?: string | null): string | undefined {
     const normalized = value.replace(/^\/+/, "");
 
     if (normalized.startsWith(`${MINIO_BUCKET}/`)) {
-        return `${MINIO_PUBLIC_BASE}/${normalized}`;
+        return buildPreferredStorageUrl(normalized);
     }
 
-    return `${MINIO_PUBLIC_BASE}/${MINIO_BUCKET}/${normalized}`;
+    return buildPreferredStorageUrl(`${MINIO_BUCKET}/${normalized}`);
 }
 
 export function isRemoteStorageUrl(url?: string): boolean {
@@ -52,6 +53,10 @@ function sanitizeMinioBase(value: string): string {
     }
 }
 
+function sanitizeApiBase(value: string): string {
+    return value.trim().replace(/\/$/, "");
+}
+
 function normalizeBrowserObjectUrl(value: string): string | undefined {
     try {
         const parsed = new URL(value);
@@ -70,4 +75,30 @@ function normalizeBrowserObjectUrl(value: string): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+function buildPreferredStorageUrl(value: string): string {
+    if (shouldProxyStorageUrl(value) && API_BASE) {
+        return `${API_BASE}/media/storage/image?path=${encodeURIComponent(value)}`;
+    }
+
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+        return value;
+    }
+
+    const normalized = value.replace(/^\/+/, "");
+    return `${MINIO_PUBLIC_BASE}/${normalized}`;
+}
+
+function shouldProxyStorageUrl(value: string): boolean {
+    if (value.startsWith("/")) {
+        return false;
+    }
+
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+        return value.includes(`/browser/${MINIO_BUCKET}/`) || value.includes(`/${MINIO_BUCKET}/`) || value.startsWith(MINIO_PUBLIC_BASE);
+    }
+
+    const normalized = value.replace(/^\/+/, "");
+    return normalized.startsWith(`${MINIO_BUCKET}/`) || normalized.startsWith("products/");
 }

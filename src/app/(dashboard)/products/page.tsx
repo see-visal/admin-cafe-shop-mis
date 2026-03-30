@@ -8,7 +8,7 @@ import {
     useSoftDeleteProductMutation,
 } from "@/store/api/productsApi";
 import { useGetAdminCategoriesQuery } from "@/store/api/dashboardApi";
-import { useUploadAdminImageMutation } from "@/store/api/managementApi";
+import { useGetStorageImagesQuery, useUploadAdminImageMutation } from "@/store/api/managementApi";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -32,6 +32,7 @@ import { resolveStorageUrl } from "@/lib/storage";
 import { Coffee, ChevronLeft, ChevronRight, Trash2, Plus, Pencil, Loader2, ImageIcon } from "lucide-react";
 import type { Product, Category } from "@/types";
 import type { FetchBaseQueryError } from "@reduxjs/toolkit/query";
+import type { StorageImageAsset } from "@/store/api/managementApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,9 +85,21 @@ interface ProductFormProps {
     onImageUrlChanged: (value: string) => void;
     loading: boolean;
     categories: Category[] | undefined;
+    existingImages: StorageImageAsset[];
+    loadingExistingImages: boolean;
 }
 
-function ProductForm({ form, setForm, onSubmit, onImageSelected, onImageUrlChanged, loading, categories }: ProductFormProps) {
+function ProductForm({
+    form,
+    setForm,
+    onSubmit,
+    onImageSelected,
+    onImageUrlChanged,
+    loading,
+    categories,
+    existingImages,
+    loadingExistingImages,
+}: ProductFormProps) {
     const isTodaySpecial = form.todaySpecial;
     const typeLabel = isTodaySpecial ? "Today's Special" : "Normal Product";
     const typeDescription = isTodaySpecial
@@ -318,6 +331,57 @@ function ProductForm({ form, setForm, onSubmit, onImageSelected, onImageUrlChang
                         <p className="mt-1 break-all"><code>https://minio-latest-ew4n.onrender.com/browser/coffeeshop-files/products%2Fcappuccino.jpg</code></p>
                     </div>
                 </div>
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-medium text-slate-800">Choose from uploaded MinIO images</p>
+                            <p className="text-sm text-slate-500">Pick an image that already exists in <code>coffeeshop-files/products</code>.</p>
+                        </div>
+                        {loadingExistingImages && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                    </div>
+                    {existingImages.length > 0 ? (
+                        <div className="grid max-h-72 grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3">
+                            {existingImages.map((image) => {
+                                const previewUrl = resolveStorageUrl(image.path) ?? "";
+                                const selected = normalizeProductImageReference(form.imageUrl) === image.path
+                                    || form.imageUrl === previewUrl;
+
+                                return (
+                                    <button
+                                        key={image.path}
+                                        type="button"
+                                        onClick={() => onImageUrlChanged(image.path)}
+                                        className={`overflow-hidden rounded-2xl border text-left transition-all ${selected ? "border-amber-400 bg-amber-50 shadow-[0_14px_35px_-28px_rgba(217,119,6,0.7)]" : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/60"}`}
+                                    >
+                                        <div className="aspect-square overflow-hidden bg-slate-100">
+                                            {previewUrl ? (
+                                                <img
+                                                    src={previewUrl}
+                                                    alt={image.name}
+                                                    className="h-full w-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="flex h-full items-center justify-center text-slate-400">
+                                                    <ImageIcon className="h-6 w-6" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="px-3 py-2">
+                                            <p className="truncate text-sm font-medium text-slate-800">{image.name}</p>
+                                            <p className="truncate text-xs text-slate-500">{image.path}</p>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
+                            {loadingExistingImages
+                                ? "Loading MinIO product images..."
+                                : "No product images were found in MinIO yet."}
+                        </div>
+                    )}
+                </div>
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${imageStatusClassName}`}>
                     <div className="flex items-center gap-2">
                         {form.imageUploadState === "uploading" && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -377,6 +441,11 @@ export default function ProductsPage() {
     const [feedback, setFeedback] = useState<FeedbackState | null>(null);
     const [imageFailures, setImageFailures] = useState<Record<string, boolean>>({});
     const latestImageUploadId = useRef(0);
+    const shouldLoadStorageImages = openCreate || Boolean(editTarget);
+    const { data: storageImages = [], isFetching: loadingStorageImages } = useGetStorageImagesQuery(
+        { directory: "products" },
+        { skip: !shouldLoadStorageImages },
+    );
 
     useEffect(() => {
         return () => {
@@ -650,6 +719,8 @@ export default function ProductsPage() {
                             onImageUrlChanged={handleImageUrlChanged}
                             loading={creating || uploadingImage}
                             categories={categories}
+                            existingImages={storageImages}
+                            loadingExistingImages={loadingStorageImages}
                         />
                     </DialogContent>
                 </Dialog>
@@ -788,6 +859,8 @@ export default function ProductsPage() {
                                                             onImageUrlChanged={handleImageUrlChanged}
                                                             loading={updating || uploadingImage}
                                                             categories={categories}
+                                                            existingImages={storageImages}
+                                                            loadingExistingImages={loadingStorageImages}
                                                         />
                                                     </DialogContent>
                                                 </Dialog>

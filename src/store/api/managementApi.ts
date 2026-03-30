@@ -16,6 +16,11 @@ import type {
     SettlementReport,
 } from "@/types";
 
+export interface StorageImageAsset {
+    path: string;
+    name: string;
+}
+
 export const managementApi = baseApi.injectEndpoints({
     endpoints: (builder) => ({
         // ── Users ───────────────────────────────────────────────
@@ -80,6 +85,13 @@ export const managementApi = baseApi.injectEndpoints({
                     params: { directory },
                 };
             },
+        }),
+
+        getStorageImages: builder.query<StorageImageAsset[], { directory?: string }>({
+            query: ({ directory = "products" } = {}) => ({
+                url: "/api/admin/storage/images",
+                params: { directory },
+            }),
         }),
         // ── Audit Logs ──────────────────────────────────────────
         getAuditLogs: builder.query<
@@ -165,6 +177,7 @@ export const {
     useSetUserLockedMutation,
     useDeleteUserMutation,
     useUploadAdminImageMutation,
+    useGetStorageImagesQuery,
     useGetAuditLogsQuery,
     useGetPromosQuery,
     useCreatePromoMutation,

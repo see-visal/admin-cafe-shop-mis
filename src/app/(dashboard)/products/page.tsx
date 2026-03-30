@@ -72,6 +72,8 @@ const emptyForm: ProductFormValues = {
     imageUploadMessage: "",
 };
 
+const PRODUCT_IMAGE_BUCKET = process.env.NEXT_PUBLIC_MINIO_BUCKET || "coffeeshop-files";
+
 // ─── ProductForm — defined at module level so React never remounts it mid-render
 
 interface ProductFormProps {
@@ -487,7 +489,7 @@ export default function ProductsPage() {
     }
 
     function handleImageUrlChanged(value: string) {
-        const normalizedValue = value.trim();
+        const normalizedValue = normalizeProductImageReference(value);
         const looksLikeFolderReference = isFolderLikeImageReference(normalizedValue);
         const resolvedPreview = resolveStorageUrl(normalizedValue) ?? "";
 
@@ -906,5 +908,25 @@ function isFolderLikeImageReference(value: string): boolean {
     }
 
     return /^(coffeeshop-files\/)?products\/?$/i.test(normalized);
+}
+
+function normalizeProductImageReference(value: string): string {
+    const normalized = value.trim();
+    if (!normalized) return "";
+
+    const bareFilenamePattern = /^[^/\\]+\.(jpg|jpeg|png|webp|gif|avif|svg)$/i;
+    if (bareFilenamePattern.test(normalized)) {
+        return `${PRODUCT_IMAGE_BUCKET}/products/${normalized}`;
+    }
+
+    if (normalized.startsWith("/products/")) {
+        return `${PRODUCT_IMAGE_BUCKET}${normalized}`;
+    }
+
+    if (normalized.startsWith("products/")) {
+        return `${PRODUCT_IMAGE_BUCKET}/${normalized}`;
+    }
+
+    return normalized;
 }
 

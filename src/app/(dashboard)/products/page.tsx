@@ -301,14 +301,20 @@ function ProductForm({ form, setForm, onSubmit, onImageSelected, onImageUrlChang
                     <Label className="text-sm font-medium text-slate-800">Or use an existing MinIO image</Label>
                     <Input
                         type="text"
-                        placeholder="Paste MinIO URL, browser link, or object path like products/latte.jpg"
+                        placeholder="Example: products/cappuccino.jpg"
                         value={form.imageUrl}
                         onChange={(e) => onImageUrlChanged(e.target.value)}
                         className="h-12 rounded-2xl border-slate-200 bg-white px-4 text-base shadow-none focus-visible:ring-amber-400"
                     />
                     <p className="text-sm leading-6 text-slate-500">
-                        Works with MinIO public URLs, MinIO browser URLs, or object paths inside the <code>coffeeshop-files</code> bucket.
+                        Paste one exact image file, not the whole folder. Works with object paths, MinIO public URLs, or MinIO browser links inside the <code>coffeeshop-files</code> bucket.
                     </p>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        <p className="font-medium text-slate-800">Examples</p>
+                        <p className="mt-2 break-all"><code>products/cappuccino.jpg</code></p>
+                        <p className="mt-1 break-all"><code>https://minio-latest-ew4n.onrender.com/coffeeshop-files/products/cappuccino.jpg</code></p>
+                        <p className="mt-1 break-all"><code>https://minio-latest-ew4n.onrender.com/browser/coffeeshop-files/products%2Fcappuccino.jpg</code></p>
+                    </div>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${imageStatusClassName}`}>
                     <div className="flex items-center gap-2">
@@ -482,6 +488,7 @@ export default function ProductsPage() {
 
     function handleImageUrlChanged(value: string) {
         const normalizedValue = value.trim();
+        const looksLikeFolderReference = isFolderLikeImageReference(normalizedValue);
         const resolvedPreview = resolveStorageUrl(normalizedValue) ?? "";
 
         setFeedback(null);
@@ -494,16 +501,20 @@ export default function ProductsPage() {
                 ...current,
                 imageFile: null,
                 imageUrl: normalizedValue,
-                imagePreview: resolvedPreview,
+                imagePreview: looksLikeFolderReference ? "" : resolvedPreview,
                 imageUploadState: normalizedValue
-                    ? resolvedPreview
-                        ? "uploaded"
-                        : "idle"
+                    ? looksLikeFolderReference
+                        ? "error"
+                        : resolvedPreview
+                            ? "uploaded"
+                            : "error"
                     : "idle",
                 imageUploadMessage: normalizedValue
-                    ? resolvedPreview
-                        ? "Using the existing MinIO image for this product."
-                        : "Image URL saved, but preview is not available yet. Check the path before saving."
+                    ? looksLikeFolderReference
+                        ? "Paste one exact file path like products/cappuccino.jpg. The current value points to a MinIO folder, not an image file."
+                        : resolvedPreview
+                            ? "Using the existing MinIO image for this product."
+                            : "That image could not be previewed. Check that the bucket is public and that you pasted one exact image file path."
                     : "",
             };
         });
@@ -874,5 +885,26 @@ function summarizeImageUploadError(error: unknown): string {
     }
 
     return "Local preview is ready, but automatic upload failed. You can retry with another file or paste an existing MinIO image path below.";
+}
+
+function isFolderLikeImageReference(value: string): boolean {
+    if (!value) return false;
+
+    const normalized = value.trim();
+    if (!normalized) return false;
+
+    if (normalized.endsWith("/")) {
+        return true;
+    }
+
+    if (/\/browser\/coffeeshop-files\/products%2F$/i.test(normalized)) {
+        return true;
+    }
+
+    if (/\/coffeeshop-files\/products\/?$/i.test(normalized)) {
+        return true;
+    }
+
+    return /^(coffeeshop-files\/)?products\/?$/i.test(normalized);
 }
 

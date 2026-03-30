@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     useGetAdminProductsQuery,
     useCreateProductMutation,
     useUpdateProductMutation,
     useSoftDeleteProductMutation,
-    useUploadProductImageMutation,
 } from "@/store/api/productsApi";
 import { useGetAdminCategoriesQuery } from "@/store/api/dashboardApi";
+import { useUploadAdminImageMutation } from "@/store/api/managementApi";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -30,7 +30,6 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { resolveStorageUrl } from "@/lib/storage";
 import { Coffee, ChevronLeft, ChevronRight, Trash2, Plus, Pencil, Loader2, ImageIcon } from "lucide-react";
-import Image from "next/image";
 import type { Product, Category } from "@/types";
 import type { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 
@@ -46,6 +45,9 @@ interface ProductFormValues {
     homePriority: string;
     imageFile: File | null;
     imagePreview: string;
+    imageUrl: string;
+    imageUploadState: "idle" | "uploading" | "uploaded" | "error";
+    imageUploadMessage: string;
 }
 
 type ProductViewMode = "active" | "hidden" | "all";
@@ -65,6 +67,9 @@ const emptyForm: ProductFormValues = {
     homePriority: "",
     imageFile: null,
     imagePreview: "",
+    imageUrl: "",
+    imageUploadState: "idle",
+    imageUploadMessage: "",
 };
 
 // ─── ProductForm — defined at module level so React never remounts it mid-render
@@ -73,16 +78,34 @@ interface ProductFormProps {
     form: ProductFormValues;
     setForm: React.Dispatch<React.SetStateAction<ProductFormValues>>;
     onSubmit: (e: React.FormEvent) => void;
+    onImageSelected: (file: File | null) => void | Promise<void>;
     loading: boolean;
     categories: Category[] | undefined;
 }
 
-function ProductForm({ form, setForm, onSubmit, loading, categories }: ProductFormProps) {
+function ProductForm({ form, setForm, onSubmit, onImageSelected, loading, categories }: ProductFormProps) {
     const isTodaySpecial = form.todaySpecial;
     const typeLabel = isTodaySpecial ? "Today's Special" : "Normal Product";
     const typeDescription = isTodaySpecial
         ? "This item will appear in the homepage special section and stay highlighted for guests."
         : "This item stays in the regular menu flow, with optional homepage placement.";
+    const imageBadgeLabel = form.imageUploadState === "uploaded"
+        ? "MinIO ready"
+        : form.imageUploadState === "uploading"
+            ? "Uploading to MinIO"
+            : form.imagePreview
+                ? "Preview ready"
+                : "Image optional";
+    const imageStatusClassName = form.imageUploadState === "error"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : form.imageUploadState === "uploaded"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : form.imageUploadState === "uploading"
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-slate-200 bg-slate-50 text-slate-500";
+    const imageStatusMessage = form.imageUploadMessage || (form.imagePreview
+        ? "Local preview is ready. Save the product once your MinIO upload is ready."
+        : "Choose a local image and the admin will upload it to MinIO automatically.");
 
     return (
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
@@ -104,7 +127,7 @@ function ProductForm({ form, setForm, onSubmit, loading, categories }: ProductFo
                                 {isTodaySpecial ? "Homepage spotlight" : "Daily menu"}
                             </Badge>
                             <Badge variant="outline" className="border-white/15 bg-white/10 px-3 py-1 text-slate-100">
-                                {form.imagePreview ? "Image selected" : "Image optional"}
+                                {imageBadgeLabel}
                             </Badge>
                         </div>
                     </div>
@@ -267,28 +290,24 @@ function ProductForm({ form, setForm, onSubmit, loading, categories }: ProductFo
                     className="rounded-2xl border-slate-200 bg-white"
                     onChange={(e) => {
                         const file = e.target.files?.[0] ?? null;
-                        if (!file) return;
-
-                        const nextPreview = URL.createObjectURL(file);
-                        setForm((f) => {
-                            if (f.imagePreview.startsWith("blob:")) {
-                                URL.revokeObjectURL(f.imagePreview);
-                            }
-                            return { ...f, imageFile: file, imagePreview: nextPreview };
-                        });
+                        if (file) {
+                            void onImageSelected(file);
+                        }
+                        e.currentTarget.value = "";
                     }}
                 />
-                <p className="text-sm leading-6 text-slate-500">
-                    Selected image will be uploaded to MinIO after saving this product.
-                </p>
+                <div className={`rounded-2xl border px-4 py-3 text-sm ${imageStatusClassName}`}>
+                    <div className="flex items-center gap-2">
+                        {form.imageUploadState === "uploading" && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <span>{imageStatusMessage}</span>
+                    </div>
+                </div>
                 {form.imagePreview && (
                     <div className="relative aspect-[4/3] overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100">
-                        <Image
+                        <img
                             src={form.imagePreview}
                             alt="Product preview"
-                            fill
-                            unoptimized
-                            className="object-cover"
+                            className="h-full w-full object-cover"
                         />
                     </div>
                 )}
@@ -327,7 +346,7 @@ export default function ProductsPage() {
     const [createProduct, { isLoading: creating }] = useCreateProductMutation();
     const [updateProduct, { isLoading: updating }] = useUpdateProductMutation();
     const [softDelete, { isLoading: deleting }] = useSoftDeleteProductMutation();
-    const [uploadProductImage, { isLoading: uploadingImage }] = useUploadProductImageMutation();
+    const [uploadAdminImage, { isLoading: uploadingImage }] = useUploadAdminImageMutation();
 
     const [openCreate, setOpenCreate] = useState(false);
     const [editTarget, setEditTarget] = useState<Product | null>(null);
@@ -335,6 +354,7 @@ export default function ProductsPage() {
     const [viewMode, setViewMode] = useState<ProductViewMode>("active");
     const [feedback, setFeedback] = useState<FeedbackState | null>(null);
     const [imageFailures, setImageFailures] = useState<Record<string, boolean>>({});
+    const latestImageUploadId = useRef(0);
 
     useEffect(() => {
         return () => {
@@ -345,6 +365,7 @@ export default function ProductsPage() {
     }, [form.imagePreview]);
 
     function resetForm() {
+        latestImageUploadId.current += 1;
         setForm((prev) => {
             if (prev.imagePreview.startsWith("blob:")) {
                 URL.revokeObjectURL(prev.imagePreview);
@@ -388,26 +409,89 @@ export default function ProductsPage() {
             homePriority: product.homePriority != null ? String(product.homePriority) : "",
             imageFile: null,
             imagePreview: resolveStorageUrl(product.imageUrl) ?? "",
+            imageUrl: product.imageUrl ?? "",
+            imageUploadState: product.imageUrl ? "uploaded" : "idle",
+            imageUploadMessage: product.imageUrl
+                ? "Current product image is already saved."
+                : "",
         });
+    }
+
+    async function handleImageSelected(file: File | null) {
+        if (!file) return;
+
+        const uploadId = latestImageUploadId.current + 1;
+        latestImageUploadId.current = uploadId;
+        const nextPreview = URL.createObjectURL(file);
+
+        setFeedback(null);
+        setForm((current) => {
+            if (current.imagePreview.startsWith("blob:")) {
+                URL.revokeObjectURL(current.imagePreview);
+            }
+
+            return {
+                ...current,
+                imageFile: file,
+                imagePreview: nextPreview,
+                imageUrl: "",
+                imageUploadState: "uploading",
+                imageUploadMessage: "Uploading image to MinIO...",
+            };
+        });
+
+        try {
+            const result = await uploadAdminImage({ directory: "products", file }).unwrap();
+            if (uploadId !== latestImageUploadId.current) return;
+
+            setForm((current) => ({
+                ...current,
+                imageFile: file,
+                imageUrl: result.imageUrl,
+                imageUploadState: "uploaded",
+                imageUploadMessage: "Image uploaded to MinIO and ready to save with this product.",
+            }));
+            setSuccess("Image uploaded to MinIO. Save the product to finish the flow.");
+        } catch (err) {
+            if (uploadId !== latestImageUploadId.current) return;
+
+            console.error("Failed to upload product image:", err);
+            setForm((current) => ({
+                ...current,
+                imageFile: file,
+                imageUrl: "",
+                imageUploadState: "error",
+                imageUploadMessage: extractErrorMessage(err, "Failed to upload image to MinIO. Please try again."),
+            }));
+            setErrorMessage(err, "Failed to upload image to MinIO.");
+        }
     }
 
     async function handleCreate(e: React.FormEvent) {
         e.preventDefault();
         setFeedback(null);
+
+        if (form.imageUploadState === "uploading") {
+            setFeedback({ tone: "error", message: "Wait for the image to finish uploading to MinIO before saving the product." });
+            return;
+        }
+
+        if (form.imageFile && form.imageUploadState === "error") {
+            setFeedback({ tone: "error", message: "The selected image did not upload to MinIO. Please choose the image again before saving." });
+            return;
+        }
+
         try {
             const created = await createProduct({
                 name: form.name,
                 description: form.description || undefined,
                 price: parseFloat(form.price),
                 categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
+                imageUrl: form.imageUrl || undefined,
                 showOnHomepage: form.showOnHomepage,
                 todaySpecial: form.todaySpecial,
                 homePriority: form.homePriority ? parseInt(form.homePriority) : undefined,
             }).unwrap();
-
-            if (form.imageFile) {
-                await uploadProductImage({ id: created.id, file: form.imageFile }).unwrap();
-            }
 
             await refetch();
             resetForm();
@@ -417,9 +501,9 @@ export default function ProductsPage() {
                 delete next[created.id];
                 return next;
             });
-            setSuccess(form.imageFile
-                ? "Product created and image uploaded to MinIO."
-                : "Product created. Upload an image later from edit if needed.");
+            setSuccess(form.imageUrl
+                ? "Product created with its MinIO image."
+                : "Product created. Add an image any time from this form.");
         } catch (err) {
             console.error("Failed to create product:", err);
             setErrorMessage(err, "Failed to create product.");
@@ -430,6 +514,17 @@ export default function ProductsPage() {
         e.preventDefault();
         if (!editTarget) return;
         setFeedback(null);
+
+        if (form.imageUploadState === "uploading") {
+            setFeedback({ tone: "error", message: "Wait for the image to finish uploading to MinIO before updating the product." });
+            return;
+        }
+
+        if (form.imageFile && form.imageUploadState === "error") {
+            setFeedback({ tone: "error", message: "The selected image did not upload to MinIO. Please choose the image again before updating." });
+            return;
+        }
+
         try {
             await updateProduct({
                 id: editTarget.id,
@@ -438,15 +533,12 @@ export default function ProductsPage() {
                     description: form.description || undefined,
                     price: parseFloat(form.price),
                     categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
+                    imageUrl: form.imageUrl || undefined,
                     showOnHomepage: form.showOnHomepage,
                     todaySpecial: form.todaySpecial,
                     homePriority: form.homePriority ? parseInt(form.homePriority) : undefined,
                 },
             }).unwrap();
-
-            if (form.imageFile) {
-                await uploadProductImage({ id: editTarget.id, file: form.imageFile }).unwrap();
-            }
 
             await refetch();
             setImageFailures((current) => {
@@ -456,8 +548,8 @@ export default function ProductsPage() {
             });
             setEditTarget(null);
             resetForm();
-            setSuccess(form.imageFile
-                ? "Product updated and image refreshed from MinIO."
+            setSuccess(form.imageUrl
+                ? "Product updated with the latest MinIO image."
                 : "Product details updated.");
         } catch (err) {
             console.error("Failed to update product:", err);
@@ -502,6 +594,7 @@ export default function ProductsPage() {
                             form={form}
                             setForm={setForm}
                             onSubmit={handleCreate}
+                            onImageSelected={handleImageSelected}
                             loading={creating || uploadingImage}
                             categories={categories}
                         />
@@ -638,6 +731,7 @@ export default function ProductsPage() {
                                                             form={form}
                                                             setForm={setForm}
                                                             onSubmit={handleUpdate}
+                                                            onImageSelected={handleImageSelected}
                                                             loading={updating || uploadingImage}
                                                             categories={categories}
                                                         />

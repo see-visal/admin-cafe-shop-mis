@@ -492,6 +492,9 @@ export default function ProductsPage() {
         const normalizedValue = normalizeProductImageReference(value);
         const looksLikeFolderReference = isFolderLikeImageReference(normalizedValue);
         const resolvedPreview = resolveStorageUrl(normalizedValue) ?? "";
+        const persistedImageUrl = !looksLikeFolderReference && resolvedPreview
+            ? resolvedPreview
+            : normalizedValue;
 
         setFeedback(null);
         setForm((current) => {
@@ -502,7 +505,7 @@ export default function ProductsPage() {
             return {
                 ...current,
                 imageFile: null,
-                imageUrl: normalizedValue,
+                imageUrl: persistedImageUrl,
                 imagePreview: looksLikeFolderReference ? "" : resolvedPreview,
                 imageUploadState: normalizedValue
                     ? looksLikeFolderReference

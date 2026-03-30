@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     useGetAdminProductsQuery,
     useCreateProductMutation,
@@ -32,6 +32,7 @@ import { resolveStorageUrl } from "@/lib/storage";
 import { Coffee, ChevronLeft, ChevronRight, Trash2, Plus, Pencil, Loader2, ImageIcon } from "lucide-react";
 import Image from "next/image";
 import type { Product, Category } from "@/types";
+import type { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,13 @@ interface ProductFormValues {
     homePriority: string;
     imageFile: File | null;
     imagePreview: string;
+}
+
+type ProductViewMode = "active" | "hidden" | "all";
+
+interface FeedbackState {
+    tone: "success" | "error";
+    message: string;
 }
 
 const emptyForm: ProductFormValues = {
@@ -314,16 +322,19 @@ function ProductForm({ form, setForm, onSubmit, loading, categories }: ProductFo
 
 export default function ProductsPage() {
     const [page, setPage] = useState(0);
-    const { data, isLoading } = useGetAdminProductsQuery({ page, size: 20 });
+    const { data, isLoading, isFetching, refetch } = useGetAdminProductsQuery({ page, size: 20 });
     const { data: categories } = useGetAdminCategoriesQuery();
     const [createProduct, { isLoading: creating }] = useCreateProductMutation();
     const [updateProduct, { isLoading: updating }] = useUpdateProductMutation();
-    const [softDelete] = useSoftDeleteProductMutation();
+    const [softDelete, { isLoading: deleting }] = useSoftDeleteProductMutation();
     const [uploadProductImage, { isLoading: uploadingImage }] = useUploadProductImageMutation();
 
     const [openCreate, setOpenCreate] = useState(false);
     const [editTarget, setEditTarget] = useState<Product | null>(null);
     const [form, setForm] = useState<ProductFormValues>(emptyForm);
+    const [viewMode, setViewMode] = useState<ProductViewMode>("active");
+    const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+    const [imageFailures, setImageFailures] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         return () => {
@@ -342,7 +353,30 @@ export default function ProductsPage() {
         });
     }
 
+    const allProducts = useMemo(() => data?.content ?? [], [data?.content]);
+    const productCounts = useMemo(() => {
+        const active = allProducts.filter((product) => product.active).length;
+        const hidden = allProducts.length - active;
+        const withImages = allProducts.filter((product) => Boolean(resolveStorageUrl(product.imageUrl))).length;
+        return { active, hidden, withImages };
+    }, [allProducts]);
+
+    const visibleProducts = useMemo(() => {
+        if (viewMode === "active") return allProducts.filter((product) => product.active);
+        if (viewMode === "hidden") return allProducts.filter((product) => !product.active);
+        return allProducts;
+    }, [allProducts, viewMode]);
+
+    function setSuccess(message: string) {
+        setFeedback({ tone: "success", message });
+    }
+
+    function setErrorMessage(error: unknown, fallback: string) {
+        setFeedback({ tone: "error", message: extractErrorMessage(error, fallback) });
+    }
+
     function openEdit(product: Product) {
+        setFeedback(null);
         setEditTarget(product);
         setForm({
             name: product.name,
@@ -359,6 +393,7 @@ export default function ProductsPage() {
 
     async function handleCreate(e: React.FormEvent) {
         e.preventDefault();
+        setFeedback(null);
         try {
             const created = await createProduct({
                 name: form.name,
@@ -374,16 +409,27 @@ export default function ProductsPage() {
                 await uploadProductImage({ id: created.id, file: form.imageFile }).unwrap();
             }
 
+            await refetch();
             resetForm();
             setOpenCreate(false);
+            setImageFailures((current) => {
+                const next = { ...current };
+                delete next[created.id];
+                return next;
+            });
+            setSuccess(form.imageFile
+                ? "Product created and image uploaded to MinIO."
+                : "Product created. Upload an image later from edit if needed.");
         } catch (err) {
             console.error("Failed to create product:", err);
+            setErrorMessage(err, "Failed to create product.");
         }
     }
 
     async function handleUpdate(e: React.FormEvent) {
         e.preventDefault();
         if (!editTarget) return;
+        setFeedback(null);
         try {
             await updateProduct({
                 id: editTarget.id,
@@ -402,10 +448,32 @@ export default function ProductsPage() {
                 await uploadProductImage({ id: editTarget.id, file: form.imageFile }).unwrap();
             }
 
+            await refetch();
+            setImageFailures((current) => {
+                const next = { ...current };
+                delete next[editTarget.id];
+                return next;
+            });
             setEditTarget(null);
             resetForm();
+            setSuccess(form.imageFile
+                ? "Product updated and image refreshed from MinIO."
+                : "Product details updated.");
         } catch (err) {
             console.error("Failed to update product:", err);
+            setErrorMessage(err, "Failed to update product.");
+        }
+    }
+
+    async function handleArchive(product: Product) {
+        setFeedback(null);
+        try {
+            await softDelete(product.id).unwrap();
+            await refetch();
+            setSuccess(`"${product.name}" was hidden from the active menu list.`);
+        } catch (err) {
+            console.error("Failed to hide product:", err);
+            setErrorMessage(err, "Failed to hide product.");
         }
     }
 
@@ -444,9 +512,36 @@ export default function ProductsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Menu Items</CardTitle>
-                    <CardDescription>{data ? `${data.totalElements} products` : "Loading…"}</CardDescription>
+                    <CardDescription>
+                        {data
+                            ? `${productCounts.active} active, ${productCounts.hidden} hidden, ${productCounts.withImages} with images`
+                            : "Loading..."}
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
+                    <div className="mb-4 flex flex-col gap-3">
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant={viewMode === "active" ? "default" : "outline"} size="sm" onClick={() => setViewMode("active")}>
+                                Active ({productCounts.active})
+                            </Button>
+                            <Button variant={viewMode === "hidden" ? "default" : "outline"} size="sm" onClick={() => setViewMode("hidden")}>
+                                Hidden ({productCounts.hidden})
+                            </Button>
+                            <Button variant={viewMode === "all" ? "default" : "outline"} size="sm" onClick={() => setViewMode("all")}>
+                                All ({allProducts.length})
+                            </Button>
+                        </div>
+
+                        {feedback && (
+                            <div className={`rounded-2xl border px-4 py-3 text-sm ${feedback.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"}`}>
+                                {feedback.message}
+                            </div>
+                        )}
+
+                        {isFetching && !isLoading && (
+                            <p className="text-sm text-muted-foreground">Refreshing products...</p>
+                        )}
+                    </div>
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -468,21 +563,21 @@ export default function ProductsPage() {
                                         ))}
                                     </TableRow>
                                 ))
-                                : data?.content.map((product) => {
+                                : visibleProducts.map((product) => {
                                     const imageSrc = resolveStorageUrl(product.imageUrl) ?? "";
+                                    const imageFailed = Boolean(imageFailures[product.id]);
+                                    const canRenderImage = Boolean(product.imageUrl && imageSrc && !imageFailed);
 
                                     return (
                                     <TableRow key={product.id}>
                                         <TableCell>
-                                            <div className="relative h-10 w-10 overflow-hidden rounded-md border bg-muted flex items-center justify-center">
-                                                {product.imageUrl ? (
-                                                    <Image
+                                            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                                                {canRenderImage ? (
+                                                    <img
                                                         src={imageSrc}
                                                         alt={product.name}
-                                                        fill
-                                                        priority={true}
-                                                        unoptimized={imageSrc.startsWith("http://") || imageSrc.startsWith("https://")}
-                                                        className="object-cover"
+                                                        className="h-full w-full object-cover"
+                                                        onError={() => setImageFailures((current) => ({ ...current, [product.id]: true }))}
                                                     />
                                                 ) : (
                                                     <ImageIcon className="h-5 w-5 text-muted-foreground opacity-50" />
@@ -493,10 +588,16 @@ export default function ProductsPage() {
                                             <div>
                                                 <p className="font-medium">{product.name}</p>
                                                 <p className="text-xs text-muted-foreground line-clamp-1">{product.description}</p>
+                                                {product.imageUrl && imageFailed && (
+                                                    <p className="text-[11px] text-amber-700">Image saved but not loading</p>
+                                                )}
+                                                {!product.imageUrl && (
+                                                    <p className="text-[11px] text-muted-foreground">No image uploaded yet</p>
+                                                )}
                                             </div>
                                         </TableCell>
                                         <TableCell>
-                                            <Badge variant="outline" className="text-xs">{product.category ?? "—"}</Badge>
+                                            <Badge variant="outline" className="text-xs">{product.category ?? "-"}</Badge>
                                         </TableCell>
                                         <TableCell className="font-semibold">{formatCurrency(product.price)}</TableCell>
                                         <TableCell>
@@ -554,13 +655,13 @@ export default function ProductsPage() {
                                                         <AlertDialogHeader>
                                                             <AlertDialogTitle>Hide &quot;{product.name}&quot;?</AlertDialogTitle>
                                                             <AlertDialogDescription>
-                                                                This soft-deletes the product — it won&apos;t appear on the menu but order history is preserved.
+                                                                This removes the product from the active admin list and customer menu while keeping order history intact.
                                                             </AlertDialogDescription>
                                                         </AlertDialogHeader>
                                                         <AlertDialogFooter>
                                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => softDelete(product.id)}>
-                                                                Hide Product
+                                                            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => handleArchive(product)} disabled={deleting}>
+                                                                {deleting ? "Hiding..." : "Hide Product"}
                                                             </AlertDialogAction>
                                                         </AlertDialogFooter>
                                                     </AlertDialogContent>
@@ -572,6 +673,20 @@ export default function ProductsPage() {
                                 })}
                         </TableBody>
                     </Table>
+
+                    {!isLoading && visibleProducts.length === 0 && (
+                        <div className="mt-4 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-6 py-10 text-center">
+                            <ImageIcon className="h-8 w-8 text-slate-400" />
+                            <p className="text-sm font-medium text-slate-800">No products in this view</p>
+                            <p className="text-sm text-slate-500">
+                                {viewMode === "active"
+                                    ? "Hidden products are removed from the main admin list. Switch to Hidden or All to review them."
+                                    : viewMode === "hidden"
+                                        ? "You do not have any hidden products right now."
+                                        : "Create a product to start building the menu."}
+                            </p>
+                        </div>
+                    )}
 
                     {data && data.totalPages > 1 && (
                         <div className="flex items-center justify-between mt-4 pt-4 border-t">
@@ -590,5 +705,28 @@ export default function ProductsPage() {
             </Card>
         </div>
     );
+}
+
+
+
+
+
+
+
+
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+    if (typeof error === "object" && error !== null) {
+        const maybeQueryError = error as FetchBaseQueryError & { data?: { error?: string } | string; message?: string };
+        if (typeof maybeQueryError.data === "string" && maybeQueryError.data.trim()) return maybeQueryError.data;
+        if (typeof maybeQueryError.data === "object" && maybeQueryError.data?.error) return maybeQueryError.data.error;
+        if (typeof maybeQueryError.message === "string" && maybeQueryError.message.trim()) return maybeQueryError.message;
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+        return error.message;
+    }
+
+    return fallback;
 }
 

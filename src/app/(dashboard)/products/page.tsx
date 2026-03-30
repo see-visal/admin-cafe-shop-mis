@@ -98,7 +98,7 @@ function ProductForm({ form, setForm, onSubmit, onImageSelected, onImageUrlChang
                 ? "Preview ready"
                 : "Image optional";
     const imageStatusClassName = form.imageUploadState === "error"
-        ? "border-red-200 bg-red-50 text-red-700"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
         : form.imageUploadState === "uploaded"
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
             : form.imageUploadState === "uploading"
@@ -475,9 +475,8 @@ export default function ProductsPage() {
                 imageFile: file,
                 imageUrl: "",
                 imageUploadState: "error",
-                imageUploadMessage: extractErrorMessage(err, "Failed to upload image to MinIO. Please try again."),
+                imageUploadMessage: summarizeImageUploadError(err),
             }));
-            setErrorMessage(err, "Failed to upload image to MinIO.");
         }
     }
 
@@ -519,11 +518,6 @@ export default function ProductsPage() {
             return;
         }
 
-        if (form.imageFile && form.imageUploadState === "error") {
-            setFeedback({ tone: "error", message: "The selected image did not upload to MinIO. Please choose the image again before saving." });
-            return;
-        }
-
         try {
             const created = await createProduct({
                 name: form.name,
@@ -546,7 +540,9 @@ export default function ProductsPage() {
             });
             setSuccess(form.imageUrl
                 ? "Product created with its MinIO image."
-                : "Product created. Add an image any time from this form.");
+                : form.imageFile && form.imageUploadState === "error"
+                    ? "Product created without an image. MinIO upload was not ready, so you can add the image later or paste an existing MinIO path."
+                    : "Product created. Add an image any time from this form.");
         } catch (err) {
             console.error("Failed to create product:", err);
             setErrorMessage(err, "Failed to create product.");
@@ -560,11 +556,6 @@ export default function ProductsPage() {
 
         if (form.imageUploadState === "uploading") {
             setFeedback({ tone: "error", message: "Wait for the image to finish uploading to MinIO before updating the product." });
-            return;
-        }
-
-        if (form.imageFile && form.imageUploadState === "error") {
-            setFeedback({ tone: "error", message: "The selected image did not upload to MinIO. Please choose the image again before updating." });
             return;
         }
 
@@ -593,7 +584,9 @@ export default function ProductsPage() {
             resetForm();
             setSuccess(form.imageUrl
                 ? "Product updated with the latest MinIO image."
-                : "Product details updated.");
+                : form.imageFile && form.imageUploadState === "error"
+                    ? "Product details updated without changing the image. MinIO upload was not ready, so you can retry later or paste an existing MinIO path."
+                    : "Product details updated.");
         } catch (err) {
             console.error("Failed to update product:", err);
             setErrorMessage(err, "Failed to update product.");
@@ -867,5 +860,19 @@ function extractErrorMessage(error: unknown, fallback: string): string {
     }
 
     return fallback;
+}
+
+function summarizeImageUploadError(error: unknown): string {
+    const raw = extractErrorMessage(error, "MinIO upload is not ready right now.");
+
+    if (raw.includes("MinIO is reachable but not ready for S3 API requests")) {
+        return "Local preview is ready, but MinIO upload is not available yet. You can still save the product without an image, or paste an existing MinIO image path below.";
+    }
+
+    if (raw.includes("MINIO_ENDPOINT is still a placeholder")) {
+        return "Local preview is ready, but the storage service is not connected correctly yet. You can still save the product without an image, or paste an existing MinIO image path below.";
+    }
+
+    return "Local preview is ready, but automatic upload failed. You can retry with another file or paste an existing MinIO image path below.";
 }
 

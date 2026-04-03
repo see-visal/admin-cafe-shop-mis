@@ -27,6 +27,7 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ProductStudioForm } from "@/components/products/ProductStudioForm";
 import { formatCurrency } from "@/lib/utils";
 import { resolveStorageUrl } from "@/lib/storage";
 import { Coffee, ChevronLeft, ChevronRight, Trash2, Plus, Pencil, Loader2, ImageIcon } from "lucide-react";
@@ -706,12 +707,12 @@ export default function ProductsPage() {
                             <Plus className="h-4 w-4 mr-2" /> Add Product
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="mt-6 flex max-h-[calc(100vh-3rem)] w-[min(96vw,1100px)] self-start flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white p-0 shadow-2xl sm:mt-8 sm:max-h-[calc(100vh-4rem)]">
-                        <DialogHeader className="border-b border-slate-200 bg-white px-6 py-5 text-left">
-                            <DialogTitle>New Product</DialogTitle>
-                            <DialogDescription>Add a new item to your menu with cleaner storefront placement and imagery.</DialogDescription>
+                    <DialogContent className="mt-3 flex max-h-[calc(100vh-1.5rem)] w-[min(96vw,1140px)] max-w-none self-start flex-col overflow-hidden rounded-[32px] border border-stone-200 bg-[#fcfaf6] p-0 shadow-[0_38px_110px_-52px_rgba(15,23,42,0.45)] sm:mt-4 sm:max-h-[calc(100vh-2rem)]">
+                        <DialogHeader className="border-b border-stone-200 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.12),transparent_30%),linear-gradient(180deg,#fffdf9_0%,#f8f5ef_100%)] px-6 py-5 text-left">
+                            <DialogTitle className="text-2xl tracking-tight text-slate-950">New Product</DialogTitle>
+                            <DialogDescription className="max-w-2xl text-sm leading-6 text-slate-500">Build a polished menu item with richer placement, cleaner imagery, and a live storefront preview.</DialogDescription>
                         </DialogHeader>
-                        <ProductForm
+                        <ProductStudioForm
                             form={form}
                             setForm={setForm}
                             onSubmit={handleCreate}
@@ -846,12 +847,12 @@ export default function ProductsPage() {
                                                             <Pencil className="h-4 w-4" />
                                                         </Button>
                                                     </DialogTrigger>
-                                                    <DialogContent className="mt-6 flex max-h-[calc(100vh-3rem)] w-[min(96vw,1100px)] self-start flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white p-0 shadow-2xl sm:mt-8 sm:max-h-[calc(100vh-4rem)]">
-                                                        <DialogHeader className="border-b border-slate-200 bg-white px-6 py-5 text-left">
-                                                            <DialogTitle>Edit Product</DialogTitle>
-                                                            <DialogDescription>Update &quot;{editTarget?.name}&quot;</DialogDescription>
+                                                    <DialogContent className="mt-3 flex max-h-[calc(100vh-1.5rem)] w-[min(96vw,1140px)] max-w-none self-start flex-col overflow-hidden rounded-[32px] border border-stone-200 bg-[#fcfaf6] p-0 shadow-[0_38px_110px_-52px_rgba(15,23,42,0.45)] sm:mt-4 sm:max-h-[calc(100vh-2rem)]">
+                                                        <DialogHeader className="border-b border-stone-200 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.12),transparent_30%),linear-gradient(180deg,#fffdf9_0%,#f8f5ef_100%)] px-6 py-5 text-left">
+                                                            <DialogTitle className="text-2xl tracking-tight text-slate-950">Edit Product</DialogTitle>
+                                                            <DialogDescription className="max-w-2xl text-sm leading-6 text-slate-500">Refresh &quot;{editTarget?.name}&quot; with updated content, imagery, and homepage placement.</DialogDescription>
                                                         </DialogHeader>
-                                                        <ProductForm
+                                                        <ProductStudioForm
                                                             form={form}
                                                             setForm={setForm}
                                                             onSubmit={handleUpdate}
